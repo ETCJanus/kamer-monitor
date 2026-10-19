@@ -1,0 +1,56 @@
+name: Kamer monitor
+
+on:
+  schedule:
+    # Elke 30 minuten van ongeveer 7:00 tot 23:30 Nederlandse tijd (tijden in UTC)
+    - cron: "7,37 5-21 * * *"
+  workflow_dispatch:   # handmatig starten via de knop "Run workflow"
+
+permissions:
+  contents: write      # nodig om seen.json terug te zetten
+
+concurrency:
+  group: kamer-monitor
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Cache browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-v1
+
+      - name: Install
+        run: |
+          pip install playwright requests
+          playwright install --with-deps chromium
+
+      - name: Check Facebook-groep
+        env:
+          FB_COOKIES: ${{ secrets.FB_COOKIES }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python monitor.py --once
+
+      - name: Onthoud geziene posts
+        if: always()
+        run: |
+          git config user.name "kamer-bot"
+          git config user.email "actions@users.noreply.github.com"
+          if [ -f seen.json ]; then
+            git add seen.json
+            if ! git diff --cached --quiet; then
+              git commit -m "update seen posts"
+              git push
+            fi
+          fi
